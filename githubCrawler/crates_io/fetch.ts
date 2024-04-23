@@ -1,5 +1,4 @@
 import { Database } from "bun:sqlite";
-import generateDB from "./generateDB";
 import fetchTop1000 from "./top1000";
 import getBulkPackagesInfo from "./getBulkPackagesInfo";
 
@@ -8,7 +7,6 @@ const CratesIoFetch = async (
   useCache: boolean = false
 ) => {
   console.log("🔍 Analyse crates.io 🦀");
-  if (!useCache) await generateDB();
   /*
   const db = new Database("tmp/cratesio.sqlite", { readonly: true });
   console.log("  🏅 Top 1000");

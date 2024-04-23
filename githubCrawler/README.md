@@ -3,7 +3,7 @@
 ## Requirements
 
 - Bun: `curl -fsSL https://bun.sh/install | bash`
-- SQLite3
+- PostGres
 
 ## Installation
 

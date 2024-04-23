@@ -5,7 +5,9 @@
   "main": "main.ts",
   "scripts": {
     "crawl": "bun main.ts",
-    "postinstall": "bunx playwright install --with-deps chromium"
+    "postinstall": "bunx playwright install --with-deps chromium",
+    "cratesiodb_prepare": "echo \"DROP DATABASE IF EXISTS cratesio\" | psql && echo \"CREATE DATABASE cratesio\" | psql",
+    "cratesiodb": "bun cratesiodb_prepare && DBPATH=$(bun crates_io/generateDB.ts) && cd $DBPATH && psql cratesio < schema.sql && psql cratesio < import.sql && cd ../.. && rm -rf cratesiodump"
   },
   "author": "",
   "license": "ISC",
@@ -14,6 +16,7 @@
     "csv-simple-parser": "^1.0.3",
     "octokit": "^3.2.0",
     "playwright": "^1.43.0",
+    "postgres": "^3.4.4",
     "pretty-ms": "^9.0.0"
   },
   "devDependencies": {
