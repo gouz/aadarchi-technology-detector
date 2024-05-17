@@ -4,8 +4,8 @@
  * and then add the property `time` to the returned value of the function `formatPackage` in the main.ts file.
  */
 
-import { format } from "date-fns";
 import { Artifact } from "../artifact.type";
+import { createDatesByMonthSince2015, getCreationDate } from "./utils";
 
 type Data = Record<string, string[]>;
 
@@ -13,40 +13,19 @@ const packagesFromArtifact = await Bun.file(
   "./../outputs/artifact.json"
 ).json();
 
-const getFormattedFirstDayOfMonth = (stringDate: string): string => {
-  const d = new Date(stringDate);
-
-  return format(new Date(d.getFullYear(), d.getMonth(), 1), "yyyy-MM-dd");
-};
-
-const getCreationDate = (time: Record<string, string>): string => {
-  return getFormattedFirstDayOfMonth(time?.created);
-};
-
-const createDatesByMonthSince2015 = () => {
-  const dates = [];
-  let date = new Date("2015-01-01");
-
-  while (date < new Date()) {
-    dates.push(format(date, "yyyy-MM-dd"));
-    date.setMonth(date.getMonth() + 1);
-  }
-
-  return dates;
-};
-
-const createArtifactFileByDate = () => {
-  return createDatesByMonthSince2015().reduce((acc, date) => {
+const createArtifactFileByDate = () =>
+  createDatesByMonthSince2015().reduce((acc, date) => {
     acc[date] = [];
     return acc;
   }, {} as Data);
-};
 
 const main = async () => {
   const data = createArtifactFileByDate();
 
-  for (const [_, pkg] of Object.entries(packagesFromArtifact)) {
+  for (const [pkgName, pkg] of Object.entries(packagesFromArtifact)) {
     const p = pkg as Artifact.Package;
+
+    if (!pkgName.startsWith("npm:")) continue;
 
     const date = p.time ? getCreationDate(p.time) : "2015-01-01";
 
@@ -57,7 +36,7 @@ const main = async () => {
     }
   }
 
-  await Bun.write("./pkgByDate.json", JSON.stringify(data));
+  await Bun.write("./data/pkgByDate.json", JSON.stringify(data));
 };
 
 main();

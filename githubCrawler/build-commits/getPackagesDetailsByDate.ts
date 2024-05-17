@@ -1,38 +1,24 @@
-import { format } from "date-fns";
+import {
+  BulkPackageList,
+  DataToFetch,
+  ProcessedMonthData,
+  ResponseData,
+  TransformedMonthData,
+  UrlList,
+} from "./types";
+import {
+  filterScopedAndNotScopedPackages,
+  formatDateRange,
+  getCachedDataToFetch,
+  getFiles,
+  retryFetch,
+  saveDataToFetch,
+  writeHistory,
+} from "./utils";
 
-interface DataToFetch {
-  range: string;
-  urlsToFetch: string[];
-}
+const USE_CACHE = Bun.env.USE_CACHE === "true";
 
-interface ScopedAndNotScopedPackages {
-  scopedPackages: string[];
-  notScopedPackages: string[];
-}
-
-type UrlList = string[];
-type BulkPackageList = string[][];
-
-type TransformedMonthData = [string, number][];
-type ProcessedMonthData = { [month: string]: TransformedMonthData };
-
-type Downloads = { downloads: number; day: string };
-type PackageData = {
-  downloads: Downloads[];
-  package: string;
-  start: string;
-  end: string;
-};
-
-type ResponseData = {
-  [pkg: string]: PackageData;
-};
-
-const USE_CACHE = true;
-const RETRY_INTERVAL = 31 * 60 * 1000;
-const MAX_RETRY_ATTEMPTS = 5;
-
-const packagesByDate = await Bun.file("./build-commits/pkgByDate.json").json();
+const packagesByDate = await Bun.file("./data/pkgByDate.json").json();
 
 const buildUrlList = (packages: string[], range: string): UrlList => {
   const bulkPackageList = buildBulkPackageList(packages);
@@ -80,30 +66,9 @@ const buildDataToFetch = (
     dataToFetch.push({ range, urlsToFetch });
   }
 
-  Bun.write("./build-commits/dataToFetch.json", JSON.stringify(dataToFetch));
+  saveDataToFetch(dataToFetch);
 
   return dataToFetch;
-};
-
-const formatDateRange = (date: string): string => {
-  const d = new Date(date);
-  const firstDay = new Date(d.getFullYear(), d.getMonth(), 1);
-  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-
-  return `${format(firstDay, "yyyy-MM-dd")}:${format(lastDay, "yyyy-MM-dd")}`;
-};
-
-const filterScopedAndNotScopedPackages = (
-  packages: string[]
-): ScopedAndNotScopedPackages => {
-  const scopedPackages = packages.filter((name) => name.includes("@"));
-  const notScopedPackages = packages.filter((name) => !name.includes("@"));
-
-  return { scopedPackages, notScopedPackages };
-};
-
-const getCachedDataToFetch = async (): Promise<DataToFetch[]> => {
-  return Bun.file("./build-commits/dataToFetch.json").json();
 };
 
 const transformToMonthData = (data: ResponseData): TransformedMonthData => {
@@ -133,11 +98,16 @@ const fetchMonthData = async (
   const monthData: TransformedMonthData = [];
 
   for (const response of responses) {
-    const data: ResponseData = await response.json();
+    try {
+      const data: ResponseData = await response.json();
 
-    const dataToMerge = transformToMonthData(data);
+      const dataToMerge = transformToMonthData(data);
 
-    monthData.push(...dataToMerge);
+      monthData.push(...dataToMerge);
+    } catch (error) {
+      // If the rate limit is exceeded, we throw an error with the retryAfter property
+      throw { ...response, retryAfter: response.headers.get("retry-after") };
+    }
   }
 
   return monthData;
@@ -149,12 +119,9 @@ const processMonth = async (
   const splittedMonthRange = range.range?.split(":")[0].slice(0, -3);
   const monthData = await fetchMonthData(range);
 
-  if (USE_CACHE) {
-    Bun.write(
-      `./build-commits/history/${splittedMonthRange}.json`,
-      JSON.stringify(monthData)
-    );
-  }
+  //if (USE_CACHE) {
+  writeHistory(monthData, splittedMonthRange);
+  //}
 
   return { [splittedMonthRange]: monthData };
 };
@@ -164,37 +131,18 @@ const fetchData = async (
 ): Promise<ProcessedMonthData[]> =>
   Promise.all(dataToFetchArray.map(processMonth));
 
-const retryFetch = async (
-  fn: () => Promise<ProcessedMonthData[]>,
-  retryInterval: number,
-  maxRetries: number
-): Promise<ProcessedMonthData[] | undefined> => {
-  let retries = 0;
-  let result;
+const getRemainingDataToFetch = async (
+  dataToFetch: DataToFetch[]
+): Promise<DataToFetch[]> => {
+  const historyFiles = await getFiles("./history");
 
-  while (retries < maxRetries) {
-    try {
-      result = await fn();
-      break;
-    } catch (error) {
-      console.error(
-        `Error fetching data. Retrying in ${retryInterval / 60000} minutes...`
-      );
+  const fetchedMonths = historyFiles
+    .map((file) => file.split("/")[1].split(".")[0])
+    .sort();
 
-      for (let i = retryInterval / 60000; i > 0; i--) {
-        console.info(`Retrying in ${i} minute(s)...`);
-        await new Promise((resolve) => setTimeout(resolve, 60000));
-      }
-
-      retries++;
-    }
-  }
-
-  if (retries === maxRetries) {
-    throw new Error(`Failed after ${retries} retries.`);
-  }
-
-  return result;
+  return dataToFetch.filter(
+    (month) => !fetchedMonths.includes(month.range.split(":")[0].slice(0, -3))
+  );
 };
 
 const main = async () => {
@@ -202,11 +150,9 @@ const main = async () => {
     ? buildDataToFetch(packagesByDate)
     : await getCachedDataToFetch();
 
-  await retryFetch(
-    () => fetchData(dataToFetchArray),
-    RETRY_INTERVAL,
-    MAX_RETRY_ATTEMPTS
-  );
+  const remainingDataToFetch = await getRemainingDataToFetch(dataToFetchArray);
+
+  await retryFetch(() => fetchData(remainingDataToFetch));
 };
 
 main();
