@@ -9,3 +9,4 @@ mvnrepository/.cache/
 githubCrawler/node_modules
 githubCrawler/.env
 githubCrawler/tmp
+node_modules

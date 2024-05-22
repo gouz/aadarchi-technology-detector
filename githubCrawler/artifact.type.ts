@@ -15,6 +15,7 @@ export namespace Artifact {
     downloads?: number;
     repositories?: string[];
     versions?: Versions;
+    time?: Record<string, string>;
   }
 
   export interface Versions {
